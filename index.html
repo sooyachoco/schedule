@@ -45,11 +45,11 @@ const MONTHS_KR=["1월","2월","3월","4월","5월","6월","7월","8월","9월",
 
 const fmt=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const isSameDay=(a,b)=>fmt(a)===fmt(b);
-const getWeekStart=d=>{const r=new Date(d);const day=r.getDay();r.setDate(r.getDate()-(day===0?6:day-1));return r;};
+const getWeekStart=d=>{const r=new Date(d);r.setDate(r.getDate()-r.getDay());return r;};
 const addDays=(d,n)=>{const r=new Date(d);r.setDate(r.getDate()+n);return r;};
 const getDaysInMonth=(y,m)=>new Date(y,m+1,0).getDate();
 const getMonthGrid=(y,m)=>{
-  const first=new Date(y,m,1).getDay(),days=getDaysInMonth(y,m),start=first===0?6:first-1,grid=[];
+  const first=new Date(y,m,1).getDay(),days=getDaysInMonth(y,m),start=first,grid=[];
   for(let i=0;i<start;i++) grid.push(null);
   for(let i=1;i<=days;i++) grid.push(i);
   while(grid.length%7!==0) grid.push(null);
@@ -94,7 +94,7 @@ function DailyView({date,data,setData}){
 
   const addItem=()=>{
     if(!draft.text.trim())return;
-    const updated=[...items,{id:Date.now(),text:draft.text.trim(),time:draft.time,rep:repCount<2}];
+    const updated=[...items,{id:Date.now(),text:draft.text.trim(),time:draft.time,rep:repCount<4}];
     setData({...data,[key]:updated});
     setDraft({text:"",time:""});
   };
@@ -102,7 +102,7 @@ function DailyView({date,data,setData}){
   const toggleRep=id=>{
     const item=items.find(i=>i.id===id);
     if(!item)return;
-    if(!item.rep&&repCount>=2)return;
+    if(!item.rep&&repCount>=4)return;
     setData({...data,[key]:items.map(i=>i.id===id?{...i,rep:!i.rep}:i)});
   };
 
@@ -141,7 +141,7 @@ function DailyView({date,data,setData}){
 
       <div style={{fontSize:12,color:NX.textMuted,display:"flex",alignItems:"center",gap:6,padding:"0 2px"}}>
         <svg width="14" height="14" viewBox="0 0 16 16" fill={NX.primary}><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm-.5 4a.75.75 0 011.5 0v3a.75.75 0 01-1.5 0V5zm.75 7a.75.75 0 110-1.5.75.75 0 010 1.5z"/></svg>
-        체크 시 월간·주간 뷰에 표시 ({repCount}/2)
+        체크 시 월간·주간 뷰에 표시 ({repCount}/4)
       </div>
 
       <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,WebkitOverflowScrolling:"touch"}}>
@@ -266,7 +266,7 @@ function MonthlyView({date,data,onDayClick}){
                 {allItems.length>0&&!items.length&&<span style={{width:5,height:5,borderRadius:99,background:NX.textMuted}}/>}
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:1,flex:1}}>
-                {items.slice(0,2).map(it=>(
+                {items.slice(0,4).map(it=>(
                   <div key={it.id} style={{background:NX.primaryLight,borderRadius:2,padding:"1px 3px",borderLeft:`2px solid ${NX.primary}`}}>
                     <div style={{fontSize:9,fontWeight:600,color:NX.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                       {it.time?`${it.time} `:""}{it.text}
