@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#FFFFFF">
+<title>Jiyeon's Schedule</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect fill='%230066FF' rx='3' width='16' height='16'/><text x='8' y='12' font-size='10' fill='white' text-anchor='middle'>📅</text></svg>">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body, #root { height:100%; }
+  body { background:#F5F6F8; font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Segoe UI",sans-serif; }
+  input, select, button { font-size:16px; }
+  @media (min-width:640px) { input, select, button { font-size:13px; } }
+</style>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.5/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useMemo } = React;
+
+const NX = {
+  bg:"#F5F6F8",surface:"#FFFFFF",surfaceAlt:"#F0F1F4",
+  border:"#E2E4E9",borderLight:"#EEEFF2",
+  text:"#1A1D26",textSub:"#6B7280",textMuted:"#9CA3AF",
+  primary:"#0066FF",primaryHover:"#0052CC",primaryLight:"#EBF2FF",
+  accent:"#00C48C",accentLight:"#E6F9F3",
+  danger:"#FF4757",dangerLight:"#FFF0F1",
+  sunday:"#FF4757",sundayBg:"#FFF5F6",
+  saturday:"#0066FF",saturdayBg:"#F0F4FF",
+  shadow:"0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)",
+  radius:"10px",radiusSm:"6px",
+  font:'-apple-system,BlinkMacSystemFont,"Pretendard","Segoe UI",sans-serif',
+};
+
+const DAYS_KR=["일","월","화","수","목","금","토"];
+const TIME_SLOTS=["",...Array.from({length:33},(_,i)=>{const h=Math.floor(i/2)+7;const m=i%2===0?"00":"30";return `${String(h).padStart(2,"0")}:${m}`;})];
+const MONTHS_KR=["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
+
+const fmt=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const isSameDay=(a,b)=>fmt(a)===fmt(b);
+const getWeekStart=d=>{const r=new Date(d);const day=r.getDay();r.setDate(r.getDate()-(day===0?6:day-1));return r;};
+const addDays=(d,n)=>{const r=new Date(d);r.setDate(r.getDate()+n);return r;};
+const getDaysInMonth=(y,m)=>new Date(y,m+1,0).getDate();
+const getMonthGrid=(y,m)=>{
+  const first=new Date(y,m,1).getDay(),days=getDaysInMonth(y,m),start=first===0?6:first-1,grid=[];
+  for(let i=0;i<start;i++) grid.push(null);
+  for(let i=1;i<=days;i++) grid.push(i);
+  while(grid.length%7!==0) grid.push(null);
+  return grid;
+};
+
+const STORAGE_KEY="jiyeon-schedule-data";
+const loadData=()=>{try{const s=localStorage.getItem(STORAGE_KEY);return s?JSON.parse(s):{};}catch{return{};}};
+const saveData=(data)=>{try{localStorage.setItem(STORAGE_KEY,JSON.stringify(data));}catch{}};
+
+function RepDot({active,size=22}){
+  return (
+    <span style={{
+      display:"inline-flex",alignItems:"center",justifyContent:"center",
+      width:size,height:size,borderRadius:5,
+      border:`2px solid ${active?NX.primary:NX.border}`,
+      background:active?NX.primary:"#fff",transition:"all 0.15s",cursor:"pointer",flexShrink:0,
+    }}>
+      {active&&<svg width={size*0.5} height={size*0.4} viewBox="0 0 10 8" fill="none"><path d="M1 3.5L3.8 6.5L9 1" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+    </span>
+  );
+}
+
+function useSwipe(onLeft,onRight){
+  const [start,setStart]=useState(null);
+  return {
+    onTouchStart:e=>setStart(e.touches[0].clientX),
+    onTouchEnd:e=>{
+      if(start===null)return;
+      const diff=e.changedTouches[0].clientX-start;
+      if(Math.abs(diff)>60){diff>0?onRight():onLeft();}
+      setStart(null);
+    },
+  };
+}
+
+function DailyView({date,data,setData}){
+  const key=fmt(date);
+  const items=data[key]||[];
+  const [draft,setDraft]=useState({text:"",time:""});
+  const repCount=items.filter(i=>i.rep).length;
+
+  const addItem=()=>{
+    if(!draft.text.trim())return;
+    const updated=[...items,{id:Date.now(),text:draft.text.trim(),time:draft.time,rep:repCount<2}];
+    setData({...data,[key]:updated});
+    setDraft({text:"",time:""});
+  };
+  const removeItem=id=>setData({...data,[key]:items.filter(i=>i.id!==id)});
+  const toggleRep=id=>{
+    const item=items.find(i=>i.id===id);
+    if(!item)return;
+    if(!item.rep&&repCount>=2)return;
+    setData({...data,[key]:items.map(i=>i.id===id?{...i,rep:!i.rep}:i)});
+  };
+
+  const dow=date.getDay();
+  const dayColor=dow===0?NX.sunday:dow===6?NX.saturday:NX.text;
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:12,height:"100%"}}>
+      <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+        <span style={{fontSize:28,fontWeight:800,color:dayColor,letterSpacing:-1}}>{date.getDate()}</span>
+        <span style={{fontSize:14,fontWeight:600,color:NX.textSub}}>
+          {MONTHS_KR[date.getMonth()]} {date.getFullYear()} · {DAYS_KR[dow]}요일
+        </span>
+      </div>
+
+      <div style={{background:NX.surface,borderRadius:NX.radius,border:`1px solid ${NX.border}`,padding:12,display:"flex",flexDirection:"column",gap:8}}>
+        <div style={{display:"flex",gap:8}}>
+          <select value={draft.time} onChange={e=>setDraft({...draft,time:e.target.value})} style={{
+            flex:"0 0 auto",width:110,padding:"10px 8px",borderRadius:NX.radiusSm,
+            border:`1px solid ${NX.border}`,fontFamily:NX.font,
+            background:"#fff",color:draft.time?NX.text:NX.textMuted,
+          }}>
+            {TIME_SLOTS.map(t=><option key={t} value={t}>{t||"시간 선택"}</option>)}
+          </select>
+          <input value={draft.text} onChange={e=>setDraft({...draft,text:e.target.value})}
+            onKeyDown={e=>e.key==="Enter"&&addItem()}
+            placeholder="일정을 입력하세요..."
+            style={{flex:1,minWidth:0,padding:"10px 12px",borderRadius:NX.radiusSm,border:`1px solid ${NX.border}`,fontFamily:NX.font,outline:"none"}}
+          />
+        </div>
+        <button onClick={addItem} style={{
+          width:"100%",padding:"12px 0",borderRadius:NX.radiusSm,border:"none",
+          background:NX.primary,color:"#fff",fontWeight:700,cursor:"pointer",fontFamily:NX.font,
+        }}>일정 추가</button>
+      </div>
+
+      <div style={{fontSize:12,color:NX.textMuted,display:"flex",alignItems:"center",gap:6,padding:"0 2px"}}>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill={NX.primary}><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm-.5 4a.75.75 0 011.5 0v3a.75.75 0 01-1.5 0V5zm.75 7a.75.75 0 110-1.5.75.75 0 010 1.5z"/></svg>
+        체크 시 월간·주간 뷰에 표시 ({repCount}/2)
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,WebkitOverflowScrolling:"touch"}}>
+        {items.length===0&&(
+          <div style={{textAlign:"center",padding:40,color:NX.textMuted,fontSize:13}}>등록된 일정이 없습니다</div>
+        )}
+        {items.map(item=>(
+          <div key={item.id} style={{
+            display:"flex",alignItems:"center",gap:10,padding:"12px 14px",
+            background:item.rep?NX.primaryLight:NX.surface,
+            borderRadius:NX.radiusSm,border:`1px solid ${item.rep?NX.primary+"30":NX.borderLight}`,minHeight:48,
+          }}>
+            <div onClick={()=>toggleRep(item.id)} style={{cursor:"pointer",padding:4}}>
+              <RepDot active={item.rep}/>
+            </div>
+            <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8}}>
+              {item.time&&<span style={{fontSize:13,fontWeight:700,color:NX.primary,fontVariantNumeric:"tabular-nums",flexShrink:0}}>{item.time}</span>}
+              <span style={{fontSize:14,color:NX.text,fontWeight:item.rep?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.text}</span>
+            </div>
+            <button onClick={()=>removeItem(item.id)} style={{
+              background:"none",border:"none",cursor:"pointer",color:NX.textMuted,
+              padding:8,fontSize:20,lineHeight:1,flexShrink:0,minWidth:36,minHeight:36,
+              display:"flex",alignItems:"center",justifyContent:"center",
+            }}>×</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WeeklyView({date,data,onDayClick}){
+  const weekStart=getWeekStart(date);
+  const days=Array.from({length:7},(_,i)=>addDays(weekStart,i));
+  const today=new Date();
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:8,height:"100%"}}>
+      <div style={{fontSize:13,fontWeight:700,color:NX.textSub,letterSpacing:-0.3}}>
+        {weekStart.getFullYear()}년 {MONTHS_KR[weekStart.getMonth()]} {weekStart.getDate()}일 – {addDays(weekStart,6).getDate()}일
+      </div>
+      <div style={{flex:1,display:"flex",flexDirection:"column",gap:6,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+        {days.map((d,i)=>{
+          const key=fmt(d);
+          const items=(data[key]||[]).filter(it=>it.rep);
+          const allCount=(data[key]||[]).length;
+          const isToday=isSameDay(d,today);
+          const dow=d.getDay();
+          const dayColor=dow===0?NX.sunday:dow===6?NX.saturday:NX.text;
+
+          return (
+            <div key={i} onClick={()=>onDayClick(d)} style={{
+              background:isToday?NX.primaryLight:NX.surface,
+              borderRadius:NX.radiusSm,border:`1px solid ${isToday?NX.primary+"40":NX.borderLight}`,
+              padding:"12px 14px",cursor:"pointer",display:"flex",gap:12,alignItems:"flex-start",minHeight:56,
+            }}>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",width:40,flexShrink:0}}>
+                <span style={{fontSize:11,fontWeight:700,color:dayColor,opacity:0.6}}>{DAYS_KR[dow]}</span>
+                <span style={{
+                  fontSize:20,fontWeight:800,color:dayColor,lineHeight:1.2,
+                  ...(isToday?{background:NX.primary,color:"#fff",width:30,height:30,borderRadius:99,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:15}:{}),
+                }}>{d.getDate()}</span>
+              </div>
+              <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:4}}>
+                {items.length===0&&(
+                  <span style={{fontSize:13,color:NX.textMuted}}>
+                    {allCount>0?`일정 ${allCount}건 (대표 미지정)`:"–"}
+                  </span>
+                )}
+                {items.map(it=>(
+                  <div key={it.id} style={{background:NX.primaryLight,borderRadius:4,padding:"6px 8px",borderLeft:`3px solid ${NX.primary}`}}>
+                    {it.time&&<span style={{fontSize:11,fontWeight:700,color:NX.primary,marginRight:6}}>{it.time}</span>}
+                    <span style={{fontSize:13,fontWeight:500,color:NX.text}}>{it.text}</span>
+                  </div>
+                ))}
+              </div>
+              <svg width="16" height="16" viewBox="0 0 16 16" style={{flexShrink:0,marginTop:4}}><path d="M6 3l5 5-5 5" stroke={NX.textMuted} strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MonthlyView({date,data,onDayClick}){
+  const y=date.getFullYear(),m=date.getMonth();
+  const grid=getMonthGrid(y,m);
+  const today=new Date();
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:2,height:"100%"}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
+        {DAYS_KR.map((d,i)=>(
+          <div key={i} style={{textAlign:"center",fontSize:12,fontWeight:700,padding:"6px 0",color:i===0?NX.sunday:i===6?NX.saturday:NX.textMuted}}>{d}</div>
+        ))}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,flex:1,gridAutoRows:"1fr",minHeight:0}}>
+        {grid.map((day,i)=>{
+          if(day===null) return <div key={i} style={{background:NX.surfaceAlt,borderRadius:4,opacity:0.3}}/>;
+          const d=new Date(y,m,day);
+          const key=fmt(d);
+          const items=(data[key]||[]).filter(it=>it.rep);
+          const allItems=data[key]||[];
+          const isToday=isSameDay(d,today);
+          const dow=d.getDay();
+          const dayColor=dow===0?NX.sunday:dow===6?NX.saturday:NX.text;
+          const dayBg=dow===0?NX.sundayBg:dow===6?NX.saturdayBg:NX.surface;
+
+          return (
+            <div key={i} onClick={()=>onDayClick(d)} style={{
+              background:isToday?NX.primaryLight:dayBg,
+              borderRadius:4,padding:"4px 3px 2px",
+              border:`1px solid ${isToday?NX.primary+"40":NX.borderLight}`,
+              display:"flex",flexDirection:"column",gap:2,cursor:"pointer",overflow:"hidden",minHeight:56,
+            }}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 1px"}}>
+                <span style={{
+                  fontSize:12,fontWeight:700,color:dayColor,
+                  ...(isToday?{background:NX.primary,color:"#fff",width:20,height:20,borderRadius:99,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:10}:{}),
+                }}>{day}</span>
+                {allItems.length>0&&!items.length&&<span style={{width:5,height:5,borderRadius:99,background:NX.textMuted}}/>}
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:1,flex:1}}>
+                {items.slice(0,2).map(it=>(
+                  <div key={it.id} style={{background:NX.primaryLight,borderRadius:2,padding:"1px 3px",borderLeft:`2px solid ${NX.primary}`}}>
+                    <div style={{fontSize:9,fontWeight:600,color:NX.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      {it.time?`${it.time} `:""}{it.text}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MiniCalendar({date,onSelect,onClose}){
+  const [ym,setYm]=useState({y:date.getFullYear(),m:date.getMonth()});
+  const grid=getMonthGrid(ym.y,ym.m);
+  const today=new Date();
+  const prevM=()=>setYm(p=>p.m===0?{y:p.y-1,m:11}:{...p,m:p.m-1});
+  const nextM=()=>setYm(p=>p.m===11?{y:p.y+1,m:0}:{...p,m:p.m+1});
+
+  return (
+    <>
+      <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:90}}/>
+      <div style={{
+        position:"absolute",top:"100%",left:0,right:0,marginTop:6,zIndex:100,
+        background:NX.surface,borderRadius:12,border:`1px solid ${NX.border}`,
+        boxShadow:"0 8px 24px rgba(0,0,0,0.12)",padding:12,maxWidth:340,
+      }}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+          <button onClick={prevM} style={{width:32,height:32,borderRadius:8,border:`1px solid ${NX.border}`,background:"#fff",cursor:"pointer",fontSize:14,color:NX.textSub,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+          <span style={{fontSize:14,fontWeight:700}}>{ym.y}년 {MONTHS_KR[ym.m]}</span>
+          <button onClick={nextM} style={{width:32,height:32,borderRadius:8,border:`1px solid ${NX.border}`,background:"#fff",cursor:"pointer",fontSize:14,color:NX.textSub,display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,marginBottom:4}}>
+          {DAYS_KR.map((d,i)=>(
+            <div key={i} style={{textAlign:"center",fontSize:11,fontWeight:700,padding:"4px 0",color:i===0?NX.sunday:i===6?NX.saturday:NX.textMuted}}>{d}</div>
+          ))}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1}}>
+          {grid.map((day,i)=>{
+            if(day===null) return <div key={i}/>;
+            const d=new Date(ym.y,ym.m,day);
+            const sel=isSameDay(d,date);
+            const isT=isSameDay(d,today);
+            const dow=d.getDay();
+            const c=dow===0?NX.sunday:dow===6?NX.saturday:NX.text;
+            return (
+              <button key={i} onClick={()=>{onSelect(d);onClose();}} style={{
+                width:"100%",aspectRatio:"1",border:"none",borderRadius:8,cursor:"pointer",
+                background:sel?NX.primary:isT?NX.primaryLight:"transparent",
+                color:sel?"#fff":c,fontSize:13,fontWeight:sel||isT?700:500,
+                display:"flex",alignItems:"center",justifyContent:"center",fontFamily:NX.font,
+              }}>{day}</button>
+            );
+          })}
+        </div>
+        <button onClick={()=>{onSelect(new Date());onClose();}} style={{
+          width:"100%",marginTop:8,padding:"8px 0",borderRadius:8,border:`1px solid ${NX.border}`,
+          background:NX.surfaceAlt,cursor:"pointer",fontSize:13,fontWeight:600,color:NX.primary,fontFamily:NX.font,
+        }}>오늘로 이동</button>
+      </div>
+    </>
+  );
+}
+
+function ScheduleApp(){
+  const [data,setData]=useState(()=>loadData());
+  const [view,setView]=useState("daily");
+  const [currentDate,setCurrentDate]=useState(new Date());
+  const [pickerOpen,setPickerOpen]=useState(false);
+
+  useEffect(()=>{saveData(data);},[data]);
+
+  const navPrev=()=>{
+    const d=new Date(currentDate);
+    if(view==="monthly") d.setMonth(d.getMonth()-1);
+    else if(view==="weekly") d.setDate(d.getDate()-7);
+    else d.setDate(d.getDate()-1);
+    setCurrentDate(d);
+  };
+  const navNext=()=>{
+    const d=new Date(currentDate);
+    if(view==="monthly") d.setMonth(d.getMonth()+1);
+    else if(view==="weekly") d.setDate(d.getDate()+7);
+    else d.setDate(d.getDate()+1);
+    setCurrentDate(d);
+  };
+  const onDayClick=d=>{setCurrentDate(d);setView("daily");};
+  const swipe=useSwipe(navNext,navPrev);
+
+  const headerLabel=useMemo(()=>{
+    const y=currentDate.getFullYear(),m=MONTHS_KR[currentDate.getMonth()];
+    if(view==="monthly") return `${y}년 ${m}`;
+    if(view==="weekly"){
+      const ws=getWeekStart(currentDate),we=addDays(ws,6);
+      if(ws.getMonth()===we.getMonth()) return `${y}년 ${m} ${ws.getDate()}–${we.getDate()}일`;
+      return `${MONTHS_KR[ws.getMonth()]} ${ws.getDate()}일 – ${MONTHS_KR[we.getMonth()]} ${we.getDate()}일`;
+    }
+    return `${y}년 ${m} ${currentDate.getDate()}일`;
+  },[currentDate,view]);
+
+  const totalSchedules=Object.values(data).reduce((s,a)=>s+a.length,0);
+  const totalRep=Object.values(data).reduce((s,a)=>s+a.filter(i=>i.rep).length,0);
+
+  return (
+    <div style={{fontFamily:NX.font,background:NX.bg,minHeight:"100vh",maxWidth:480,margin:"0 auto",display:"flex",flexDirection:"column",color:NX.text}}>
+      <div style={{background:NX.surface,borderBottom:`1px solid ${NX.border}`,padding:"10px 16px",position:"sticky",top:0,zIndex:10,display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:28,height:28,borderRadius:7,background:NX.primary,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="#fff"><path d="M4 1v2H3a2 2 0 00-2 2v8a2 2 0 002 2h10a2 2 0 002-2V5a2 2 0 00-2-2h-1V1h-2v2H6V1H4zm-1 5h10v7H3V6z"/></svg>
+            </div>
+            <span style={{fontSize:16,fontWeight:800,letterSpacing:-0.5}}>Jiyeon's Schedule</span>
+          </div>
+          <span style={{fontSize:11,color:NX.textMuted,fontWeight:500,flexShrink:0}}>
+            {totalSchedules}건 · 대표 {totalRep}
+          </span>
+        </div>
+
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:4,position:"relative"}}>
+            <button onClick={navPrev} style={{width:36,height:36,borderRadius:8,border:`1px solid ${NX.border}`,background:NX.surface,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:NX.textSub}}>‹</button>
+            <button onClick={()=>setPickerOpen(p=>!p)} style={{
+              padding:"0 10px",height:36,borderRadius:8,border:`1px solid ${pickerOpen?NX.primary:NX.border}`,
+              background:pickerOpen?NX.primaryLight:NX.surface,cursor:"pointer",fontSize:13,fontWeight:700,
+              color:NX.text,fontFamily:NX.font,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,
+            }}>
+              {headerLabel}
+              <svg width="10" height="6" viewBox="0 0 10 6" fill="none" style={{transform:pickerOpen?"rotate(180deg)":"",transition:"transform 0.15s"}}>
+                <path d="M1 1l4 4 4-4" stroke={NX.textSub} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            <button onClick={navNext} style={{width:36,height:36,borderRadius:8,border:`1px solid ${NX.border}`,background:NX.surface,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:NX.textSub}}>›</button>
+            {pickerOpen&&<MiniCalendar date={currentDate} onSelect={setCurrentDate} onClose={()=>setPickerOpen(false)}/>}
+          </div>
+
+          <div style={{display:"flex",background:NX.surfaceAlt,borderRadius:8,padding:3,flexShrink:0}}>
+            {[{id:"daily",label:"일"},{id:"weekly",label:"주"},{id:"monthly",label:"월"}].map(v=>(
+              <button key={v.id} onClick={()=>setView(v.id)} style={{
+                padding:"6px 14px",borderRadius:6,border:"none",cursor:"pointer",
+                fontWeight:view===v.id?700:500,fontFamily:NX.font,
+                background:view===v.id?NX.surface:"transparent",
+                color:view===v.id?NX.primary:NX.textSub,
+                boxShadow:view===v.id?NX.shadow:"none",transition:"all 0.15s",
+              }}>{v.label}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div {...swipe} style={{flex:1,padding:12,overflow:"auto",WebkitOverflowScrolling:"touch"}}>
+        {view==="daily"&&<DailyView date={currentDate} data={data} setData={setData}/>}
+        {view==="weekly"&&<WeeklyView date={currentDate} data={data} onDayClick={onDayClick}/>}
+        {view==="monthly"&&<MonthlyView date={currentDate} data={data} onDayClick={onDayClick}/>}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<ScheduleApp/>);
+</script>
+</body>
+</html>
