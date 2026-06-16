@@ -18,6 +18,7 @@
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 <div id="root"></div>
@@ -372,6 +373,32 @@ function ScheduleApp(){
   const totalSchedules=Object.values(data).reduce((s,a)=>s+a.length,0);
   const totalRep=Object.values(data).reduce((s,a)=>s+a.filter(i=>i.rep).length,0);
 
+  const exportToExcel=()=>{
+    const DAYS=["일","월","화","수","목","금","토"];
+    const rows=[];
+    const keys=Object.keys(data).sort();
+    keys.forEach(k=>{
+      const items=data[k];
+      if(!items||!items.length) return;
+      items.forEach(it=>{
+        const d=new Date(k+"T00:00:00");
+        rows.push({
+          "날짜":k,
+          "요일":DAYS[d.getDay()]+"요일",
+          "시간":it.time||"종일",
+          "일정":it.text,
+          "대표일정":it.rep?"✔":"",
+        });
+      });
+    });
+    if(!rows.length){alert("내보낼 일정이 없습니다.");return;}
+    const ws=XLSX.utils.json_to_sheet(rows);
+    ws["!cols"]=[{wch:12},{wch:8},{wch:8},{wch:30},{wch:10}];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,"일정");
+    XLSX.writeFile(wb,`schedule_${fmt(new Date())}.xlsx`);
+  };
+
   return (
     <div style={{fontFamily:NX.font,background:NX.bg,minHeight:"100vh",maxWidth:480,margin:"0 auto",display:"flex",flexDirection:"column",color:NX.text}}>
       <div style={{background:NX.surface,borderBottom:`1px solid ${NX.border}`,padding:"10px 16px",position:"sticky",top:0,zIndex:10,display:"flex",flexDirection:"column",gap:10}}>
@@ -382,9 +409,18 @@ function ScheduleApp(){
             </div>
             <span style={{fontSize:16,fontWeight:800,letterSpacing:-0.5}}>Jiyeon's Schedule</span>
           </div>
-          <span style={{fontSize:11,color:NX.textMuted,fontWeight:500,flexShrink:0}}>
-            {totalSchedules}건 · 대표 {totalRep}
-          </span>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+            <span style={{fontSize:11,color:NX.textMuted,fontWeight:500}}>
+              {totalSchedules}건 · 대표 {totalRep}
+            </span>
+            <button onClick={exportToExcel} title="Excel 내보내기" style={{
+              width:28,height:28,borderRadius:6,border:`1px solid ${NX.border}`,
+              background:NX.surface,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+              color:NX.textSub,flexShrink:0,
+            }}>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4.5 1A1.5 1.5 0 003 2.5v11A1.5 1.5 0 004.5 15h7a1.5 1.5 0 001.5-1.5v-8L9 1H4.5zM9 1v4.5h4.5L9 1zM5.5 9h5a.5.5 0 010 1h-5a.5.5 0 010-1zm0 2h5a.5.5 0 010 1h-5a.5.5 0 010-1zm0-4h2a.5.5 0 010 1h-2a.5.5 0 010-1z"/></svg>
+            </button>
+          </div>
         </div>
 
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
